@@ -21,6 +21,18 @@ const CATEGORY_COLORS: Record<string, string> = {
   other: '#8B7355',
 };
 
+// Parse quantity string into numeric and unit parts
+// e.g., "1 jar" → { number: "1", unit: "jar" }
+// e.g., "2.5 cups" → { number: "2.5", unit: "cups" }
+function parseQuantity(quantity: string): { number: string; unit: string } {
+  const match = quantity.match(/^([\d.\/]+)\s*(.*)$/);
+  if (match) {
+    return { number: match[1], unit: match[2] };
+  }
+  // If no number found, return empty number with full string as unit
+  return { number: '', unit: quantity };
+}
+
 interface IngredientsEditorProps {
   ingredients: Ingredient[];
   onIngredientsChange: (ingredients: Ingredient[]) => void;
@@ -32,7 +44,8 @@ export default function IngredientsEditor({
 }: IngredientsEditorProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
-  const [editQuantity, setEditQuantity] = useState('');
+  const [editQuantityNum, setEditQuantityNum] = useState('');
+  const [editQuantityUnit, setEditQuantityUnit] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [newName, setNewName] = useState('');
   const [newQuantity, setNewQuantity] = useState('');
@@ -40,16 +53,23 @@ export default function IngredientsEditor({
   const startEdit = (ingredient: Ingredient) => {
     setEditingId(ingredient.id);
     setEditName(ingredient.name);
-    setEditQuantity(ingredient.quantity);
+    const parsed = parseQuantity(ingredient.quantity);
+    setEditQuantityNum(parsed.number);
+    setEditQuantityUnit(parsed.unit);
   };
 
   const saveEdit = () => {
     if (!editingId || !editName.trim()) return;
     
+    // Combine number and unit back together
+    const quantity = editQuantityUnit 
+      ? `${editQuantityNum} ${editQuantityUnit}`.trim()
+      : editQuantityNum.trim() || 'as needed';
+    
     onIngredientsChange(
       ingredients.map(ing =>
         ing.id === editingId
-          ? { ...ing, name: editName.trim(), quantity: editQuantity.trim() }
+          ? { ...ing, name: editName.trim(), quantity }
           : ing
       )
     );
@@ -110,7 +130,7 @@ export default function IngredientsEditor({
 
               {editingId === ingredient.id ? (
                 /* Edit mode */
-                <div className="flex-1 flex gap-2">
+                <div className="flex-1 flex gap-2 items-center">
                   <input
                     type="text"
                     value={editName}
@@ -119,13 +139,25 @@ export default function IngredientsEditor({
                     placeholder="Ingredient name"
                     autoFocus
                   />
-                  <input
-                    type="text"
-                    value={editQuantity}
-                    onChange={(e) => setEditQuantity(e.target.value)}
-                    className="w-24 text-sm py-1 px-2"
-                    placeholder="Quantity"
-                  />
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      value={editQuantityNum}
+                      onChange={(e) => setEditQuantityNum(e.target.value)}
+                      className="w-16 text-sm py-1 px-2 text-right"
+                      placeholder="Qty"
+                      min="0"
+                      step="any"
+                    />
+                    {editQuantityUnit && (
+                      <span 
+                        className="text-sm whitespace-nowrap"
+                        style={{ color: 'var(--color-text-secondary)' }}
+                      >
+                        {editQuantityUnit}
+                      </span>
+                    )}
+                  </div>
                   <button
                     onClick={saveEdit}
                     className="text-green-600 hover:text-green-700 px-2"

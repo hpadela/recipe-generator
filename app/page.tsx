@@ -243,13 +243,54 @@ export default function Home() {
         {/* Header */}
         <header className="text-center mb-8">
           <h1 
-            className="text-3xl font-bold mb-2"
+            className="text-3xl font-bold mb-2 flex items-center justify-center gap-2"
             style={{ 
               fontFamily: 'var(--font-fraunces), var(--font-serif)', 
               color: 'var(--color-text)' 
             }}
           >
-            🐭 MouseChef AI
+            {/* Mouse Chef Icon */}
+            <svg width="40" height="40" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+              {/* Chef Hat */}
+              <ellipse cx="32" cy="16" rx="14" ry="8" fill="#FAFAFA" stroke="#E5E5E5" strokeWidth="1.5"/>
+              <rect x="20" y="14" width="24" height="12" fill="#FAFAFA"/>
+              <rect x="18" y="24" width="28" height="6" rx="1" fill="#FAFAFA" stroke="#E5E5E5" strokeWidth="1.5"/>
+              <circle cx="26" cy="12" r="3" fill="#FAFAFA" stroke="#E5E5E5" strokeWidth="1"/>
+              <circle cx="32" cy="10" r="3.5" fill="#FAFAFA" stroke="#E5E5E5" strokeWidth="1"/>
+              <circle cx="38" cy="12" r="3" fill="#FAFAFA" stroke="#E5E5E5" strokeWidth="1"/>
+              
+              {/* Mouse Ears */}
+              <circle cx="18" cy="36" r="8" fill="#D4A574" stroke="#B8956E" strokeWidth="1.5"/>
+              <circle cx="18" cy="36" r="4" fill="#F5C9B8"/>
+              <circle cx="46" cy="36" r="8" fill="#D4A574" stroke="#B8956E" strokeWidth="1.5"/>
+              <circle cx="46" cy="36" r="4" fill="#F5C9B8"/>
+              
+              {/* Mouse Face */}
+              <ellipse cx="32" cy="46" rx="16" ry="14" fill="#D4A574" stroke="#B8956E" strokeWidth="1.5"/>
+              
+              {/* Inner Face */}
+              <ellipse cx="32" cy="48" rx="12" ry="10" fill="#E8C4A8"/>
+              
+              {/* Eyes */}
+              <ellipse cx="26" cy="44" rx="3" ry="3.5" fill="#2D2D2D"/>
+              <circle cx="25" cy="43" r="1" fill="#FFFFFF"/>
+              <ellipse cx="38" cy="44" rx="3" ry="3.5" fill="#2D2D2D"/>
+              <circle cx="37" cy="43" r="1" fill="#FFFFFF"/>
+              
+              {/* Nose */}
+              <ellipse cx="32" cy="52" rx="4" ry="3" fill="#F5A9B8"/>
+              <ellipse cx="32" cy="51.5" rx="1.5" ry="1" fill="#FFFFFF" opacity="0.5"/>
+              
+              {/* Whiskers */}
+              <line x1="18" y1="50" x2="26" y2="52" stroke="#B8956E" strokeWidth="1" strokeLinecap="round"/>
+              <line x1="18" y1="54" x2="26" y2="54" stroke="#B8956E" strokeWidth="1" strokeLinecap="round"/>
+              <line x1="38" y1="52" x2="46" y2="50" stroke="#B8956E" strokeWidth="1" strokeLinecap="round"/>
+              <line x1="38" y1="54" x2="46" y2="54" stroke="#B8956E" strokeWidth="1" strokeLinecap="round"/>
+              
+              {/* Smile */}
+              <path d="M28 56 Q32 59 36 56" stroke="#B8956E" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
+            </svg>
+            MouseChef AI
           </h1>
           <p style={{ color: 'var(--color-text-secondary)' }}>
             Transform what you have into something delicious
