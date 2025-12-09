@@ -4512,11 +4512,591 @@ To hook into those, I need to know:
 
 2. **If Assistants API:**
    - I'll need the Assistant IDs for each (analyze, recipe, image)
-   - The</details></think>
+   - The flow changes to creating threads and running the assistant
+
+3. **If just prompts/system instructions:**
+   - They can share the prompt text and I'll incorporate it into the API routes
+
+Let me ask what format they're in.</details></think>
 
 ---
 
+To hook into your existing OpenAI prompts, I need to know:
 
+1. **What type are they?**
+   - **Assistants** (created in the Assistants playground) → I'll need the Assistant IDs
+   - **Saved prompts/presets** (just stored text) → Share the prompt text and I'll replace my system prompts
+   - **Fine-tuned models** → I'll need the model IDs
+
+2. **How many prompts do you have?**
+   - One for ingredient analysis?
+   - One for recipe generation?
+   - (Image generation uses DALL-E directly, no custom prompt storage)
+
+3. **If using Assistants API:**
+   - Share the Assistant ID(s) - they look like `asst_abc123...`
+   - I'll refactor to use threads/runs instead of chat completions
+
+**Quick check:** Go to [platform.openai.com/assistants](https://platform.openai.com/assistants) - if your prompts are there, they're Assistants. If they're under Playground presets, just copy/paste the system prompt text here.
+
+---
+
+_**User (2025-12-08 19:44Z)**_
+
+Here is the recipe generator code it gives me
+
+
+
+import OpenAI from "openai";
+
+
+
+const openai = new OpenAI({
+
+  apiKey: process.env.OPENAI_API_KEY,
+
+});
+
+const response = await openai.responses.create({
+
+  prompt: {
+
+    "id": "pmpt_6937901746708193aa894b15f3da737e04ccb44cf376948e",
+
+    "version": "1"
+
+  },
+
+  input: [],
+
+  text: {
+
+    "format": {
+
+      "type": "json_object"
+
+    }
+
+  },
+
+  reasoning: {},
+
+  max_output_tokens: 2048,
+
+  store: true,
+
+  include: ["web_search_call.action.sources"]
+
+});
+
+
+
+
+
+here is the food image analysis prompt
+
+import OpenAI from "openai";
+
+
+
+const openai = new OpenAI({
+
+  apiKey: process.env.OPENAI_API_KEY,
+
+});
+
+
+
+const response = await openai.responses.create({
+
+  prompt: {
+
+    "id": "pmpt_6937873fb2ac819392f467daad5947060233110f8d0b4723",
+
+    "version": "3"
+
+  },
+
+  input: [],
+
+  text: {
+
+    "format": {
+
+      "type": "json_object"
+
+    }
+
+  },
+
+  reasoning: {},
+
+  max_output_tokens: 2048,
+
+  store: true,
+
+  include: ["web_search_call.action.sources"]
+
+});
+
+
+
+
+
+
+
+---
+
+_**Agent (model claude-4.5-opus-high-thinking, mode Agent)**_
+
+<think><details><summary>Thought Process</summary>
+The user is using OpenAI's new Responses API with stored prompts. This is a newer feature where prompts are stored on OpenAI's platform and referenced by ID. The API is `openai.responses.create()` rather than `openai.chat.completions.create()`.
+
+I can see:
+1. **Recipe Generator Prompt ID**: `pmpt_6937901746708193aa894b15f3da737e04ccb44cf376948e` (version 1)
+2. **Food Image Analysis Prompt ID**: `pmpt_6937873fb2ac819392f467daad5947060233110f8d0b4723` (version 3)
+
+I need to update my API routes to use the Responses API instead of Chat Completions. The Responses API uses a different format.
+
+Let me update the API routes to use this format. I'll need to:
+1. Use `openai.responses.create()` instead of `openai.chat.completions.create()`
+2. Reference the prompts by ID
+3. Pass input variables properly
+
+Looking at the OpenAI docs for the Responses API, the `input` field is where we pass the variables that the prompt expects. I'll need to check what variables each prompt expects, but I can make reasonable assumptions based on what we know:
+
+For ingredient analysis:
+- Input: images (base64)
+
+For recipe generation:
+- Input: ingredients, dietary restrictions, cuisine, skill level, cooking time
+
+Let me update the routes to use this new API format.</details></think>
+
+---
+
+Got it! You're using OpenAI's **Responses API** with stored prompts. I'll update the API routes to use your prompt IDs.
+
+---
+
+<tool-use data-tool-type="write" data-tool-name="write">
+
+<details><summary>Tool use: **write** • Edit file: C:\Users\hpade\Desktop\Overclock\Session4-recipe\recipe-generator\app\api\analyze\route.ts</summary>
+
+**Chunk 1**
+Lines added: 4, lines removed: undefined
+
+```diff
+@@ -5,4 +5,8 @@
+    apiKey: process.env.OPENAI_API_KEY,
+  });
++ 
++ // Stored prompt for food image analysis
++ const ANALYZE_PROMPT_ID = 'pmpt_6937873fb2ac819392f467daad5947060233110f8d0b4723';
++ const ANALYZE_PROMPT_VERSION = '3';
+  
+  export async function POST(request: NextRequest) {
+```
+
+**Chunk 2**
+Lines added: 22, lines removed: 46
+
+```diff
+@@ -17,52 +21,28 @@
+      }
+  
+-     // Build the content array with all images
+-     const imageContent: OpenAI.Chat.Completions.ChatCompletionContentPart[] = images.map(
+-       (imageData: string) =&gt; ({
+-         type: 'image_url' as const,
+-         image_url: {
+-           url: imageData,
+-           detail: 'high' as const,
+-         },
+-       })
+-     );
++     // Build image inputs for the prompt
++     const imageInputs = images.map((imageData: string, index: number) =&gt; ({
++       type: 'image' as const,
++       image_url: imageData,
++     }));
+  
+-     const response = await openai.chat.completions.create({
+-       model: 'gpt-4o',
+-       messages: [
+-         {
+-           role: 'system',
+-           content: &#96;You are an expert culinary assistant that identifies ingredients from photos. 
+- Analyze the provided image(s) and identify all visible food ingredients.
+- Return a JSON object with the following structure:
+- {
+-   "ingredients": [
+-     {
+-       "name": "ingredient name",
+-       "quantity": "estimated quantity (e.g., '4 large', '~1 cup', 'bottle visible')",
+-       "category": "one of: protein, vegetable, dairy, spice, condiment, grain, fruit, other"
+-     }
+-   ],
+-   "notes": "any relevant observations about the ingredients"
+- }
+- Be thorough but only include items you can clearly identify as food ingredients.
+- Estimate quantities based on what's visible in the image.&#96;,
++     const response = await (openai as any).responses.create({
++       prompt: {
++         id: ANALYZE_PROMPT_ID,
++         version: ANALYZE_PROMPT_VERSION,
++       },
++       input: imageInputs,
++       text: {
++         format: {
++           type: 'json_object',
+          },
+-         {
+-           role: 'user',
+-           content: [
+-             {
+-               type: 'text',
+-               text: 'Please identify all the food ingredients visible in these image(s):',
+-             },
+-             ...imageContent,
+-           ],
+-         },
+-       ],
+-       response_format: { type: 'json_object' },
+-       max_tokens: 1000,
+-     });
+- 
+-     const content = response.choices[0]?.message?.content;
++       },
++       reasoning: {},
++       max_output_tokens: 2048,
++       store: true,
++     });
++ 
++     // Extract the response content
++     const content = response.output_text || response.choices?.[0]?.message?.content;
+      if (!content) {
+        throw new Error('No response from AI');
+```
+
+**Chunk 3**
+Lines added: 1, lines removed: 2
+
+```diff
+@@ -74,9 +54,8 @@
+      console.error('Error analyzing ingredients:', error);
+      return NextResponse.json(
+-       { error: 'Failed to analyze ingredients' },
++       { error: 'Failed to analyze ingredients', details: String(error) },
+        { status: 500 }
+      );
+    }
+  }
+- 
+  
+```
+
+</details>
+
+</tool-use>
+
+---
+
+<tool-use data-tool-type="write" data-tool-name="write">
+
+<details><summary>Tool use: **write** • Edit file: C:\Users\hpade\Desktop\Overclock\Session4-recipe\recipe-generator\app\api\generate-recipe\route.ts</summary>
+
+**Chunk 1**
+Lines added: 4, lines removed: undefined
+
+```diff
+@@ -5,4 +5,8 @@
+    apiKey: process.env.OPENAI_API_KEY,
+  });
++ 
++ // Stored prompt for recipe generation
++ const RECIPE_PROMPT_ID = 'pmpt_6937901746708193aa894b15f3da737e04ccb44cf376948e';
++ const RECIPE_PROMPT_VERSION = '1';
+  
+  interface Ingredient {
+```
+
+**Chunk 2**
+Lines added: 37, lines removed: 75
+
+```diff
+@@ -50,81 +54,43 @@
+      const cuisineStyle = cuisine === 'custom' ? customCuisine : cuisine;
+  
+-     // Build ingredients list
+-     const ingredientsList = ingredients
+-       .map(ing =&gt; &#96;${ing.name} (${ing.quantity})&#96;)
+-       .join(', ');
+- 
+-     const response = await openai.chat.completions.create({
+-       model: 'gpt-4o',
+-       messages: [
+-         {
+-           role: 'system',
+-           content: &#96;You are an expert chef creating personalized recipes. Generate a complete recipe based on the provided ingredients and preferences.
+- 
+- Return a JSON object with this exact structure:
+- {
+-   "title": "Recipe title",
+-   "description": "A brief, appetizing 2-3 sentence description",
+-   "prepTime": "X minutes",
+-   "cookTime": "X minutes",
+-   "totalTime": "X minutes",
+-   "servings": "X servings",
+-   "difficulty": "Easy/Medium/Hard",
+-   "tags": ["tag1", "tag2", "tag3", "tag4"],
+-   "ingredients": [
+-     {
+-       "item": "ingredient name",
+-       "amount": "quantity",
+-       "preparation": "optional prep instructions (e.g., 'diced', 'minced')"
+-     }
+-   ],
+-   "instructions": [
+-     {
+-       "step": 1,
+-       "text": "Instruction text",
+-       "tip": "Optional helpful tip for this step"
+-     }
+-   ],
+-   "featuredImagePrompt": "A detailed prompt for generating an appetizing photo of this dish",
+-   "nutritionEstimate": {
+-     "calories": "~XXX per serving",
+-     "protein": "Xg",
+-     "carbs": "Xg",
+-     "fat": "Xg"
+-   }
+- }
+- 
+- Guidelines:
+- - Use primarily the ingredients provided, but you may add common pantry staples (salt, pepper, oil, etc.)
+- - Respect all dietary restrictions strictly
+- - Match the cuisine style requested
+- - Adjust complexity based on skill level (${skillLevel})
+- - Keep total time within ${cookingTime} minutes
+- - Include 3-6 helpful tips throughout the instructions
+- - Make the featuredImagePrompt vivid and specific for food photography&#96;,
+-         },
+-         {
+-           role: 'user',
+-           content: &#96;Create a recipe with these parameters:
+- 
+- AVAILABLE INGREDIENTS:
+- ${ingredientsList}
+- 
+- DIETARY RESTRICTIONS: ${dietaryString}
+- 
+- CUISINE STYLE: ${cuisineStyle || 'Any'}
+- 
+- SKILL LEVEL: ${skillLevel}
+- 
+- MAXIMUM COOKING TIME: ${cookingTime} minutes
+- 
+- Please create a delicious recipe that makes the best use of these ingredients.&#96;,
+-         },
+-       ],
+-       response_format: { type: 'json_object' },
+-       max_tokens: 2000,
++     // Format ingredients as JSON string (matching expected input format)
++     const ingredientsJson = JSON.stringify(
++       ingredients.map(ing =&gt; ({
++         name: ing.name,
++         quantity: ing.quantity,
++       }))
++     );
++ 
++     // Build input for the stored prompt
++     // The input format depends on how your prompt variables are defined
++     const inputData = [
++       {
++         type: 'text' as const,
++         text: &#96;INGREDIENTS: ${ingredientsJson}
++ DIETARY_RESTRICTIONS: ${dietaryString}
++ CUISINE_STYLE: ${cuisineStyle || 'Any'}
++ SKILL_LEVEL: ${skillLevel}
++ MAX_COOKING_TIME: ${cookingTime} minutes&#96;,
++       },
++     ];
++ 
++     const response = await (openai as any).responses.create({
++       prompt: {
++         id: RECIPE_PROMPT_ID,
++         version: RECIPE_PROMPT_VERSION,
++       },
++       input: inputData,
++       text: {
++         format: {
++           type: 'json_object',
++         },
++       },
++       reasoning: {},
++       max_output_tokens: 2048,
++       store: true,
+      });
+  
+-     const content = response.choices[0]?.message?.content;
++     // Extract the response content
++     const content = response.output_text || response.choices?.[0]?.message?.content;
+      if (!content) {
+        throw new Error('No response from AI');
+```
+
+**Chunk 3**
+Lines added: 1, lines removed: 2
+
+```diff
+@@ -136,9 +102,8 @@
+      console.error('Error generating recipe:', error);
+      return NextResponse.json(
+-       { error: 'Failed to generate recipe' },
++       { error: 'Failed to generate recipe', details: String(error) },
+        { status: 500 }
+      );
+    }
+  }
+- 
+  
+```
+
+</details>
+
+</tool-use>
+
+---
+
+<think><details><summary>Thought Process</summary>
+I've updated the routes to use the Responses API with the stored prompt IDs. However, I need to get some clarification from the user about the exact input format their prompts expect.
+
+Let me ask the user to clarify what variables/inputs their prompts expect, because the Responses API needs to match the prompt's expected input schema.</details></think>
+
+---
+
+Updated both routes to use your stored prompts. However, I need to know:
+
+**What input variables do your prompts expect?**
+
+When you created the prompts on platform.openai.com, you likely defined input variables/placeholders. For example:
+- Does the recipe prompt expect variables like `{{ingredients}}`, `{{cuisine}}`, `{{skill_level}}`?
+- Does the image analysis prompt expect `{{images}}` or just raw image input?
+
+**To check:** Go to your prompts on platform.openai.com and look at the "Variables" or "Input Schema" section. Share what variables each prompt expects, and I'll adjust the input format accordingly.
+
+**Current assumptions I made:**
+- **Analyze prompt**: Receives images directly as image inputs
+- **Recipe prompt**: Receives a text block with all parameters formatted as:
+  ```
+  INGREDIENTS: [{"name": "...", "quantity": "..."}]
+  DIETARY_RESTRICTIONS: Vegetarian
+  CUISINE_STYLE: Italian
+  SKILL_LEVEL: intermediate
+  MAX_COOKING_TIME: 30 minutes
+  ```
+
+Is this correct, or do your prompts have specific named variables I should use?
+
+---
+
+_**User (2025-12-08 19:44Z)**_
+
+lets move each prompt id and version to my .env.local file 
+
+---
+
+_**Agent (model claude-4.5-opus-high-thinking, mode Agent)**_
+
+<think><details><summary>Thought Process</summary>
+The user wants to move the prompt IDs and versions to the .env.local file. This is a good practice for configuration management. I'll update the .env.local file and then update the API routes to read from environment variables.</details></think>
+
+---
+
+Cannot edit files blocked by globalignore
+
+---
+
+<tool-use data-tool-type="write" data-tool-name="search_replace">
+
+<details><summary>Tool use: **search_replace** • Edit file: C:\Users\hpade\Desktop\Overclock\Session4-recipe\recipe-generator\app\api\analyze\route.ts</summary>
+
+**Chunk 1**
+Lines added: 3, lines removed: 3
+
+```diff
+@@ -6,7 +6,7 @@
+  });
+  
+- // Stored prompt for food image analysis
+- const ANALYZE_PROMPT_ID = 'pmpt_6937873fb2ac819392f467daad5947060233110f8d0b4723';
+- const ANALYZE_PROMPT_VERSION = '3';
++ // Stored prompt for food image analysis (from env)
++ const ANALYZE_PROMPT_ID = process.env.OPENAI_ANALYZE_PROMPT_ID!;
++ const ANALYZE_PROMPT_VERSION = process.env.OPENAI_ANALYZE_PROMPT_VERSION!;
+  
+  export async function POST(request: NextRequest) {
+```
+
+</details>
+
+</tool-use>
+
+---
+
+<tool-use data-tool-type="write" data-tool-name="search_replace">
+
+<details><summary>Tool use: **search_replace** • Edit file: C:\Users\hpade\Desktop\Overclock\Session4-recipe\recipe-generator\app\api\generate-recipe\route.ts</summary>
+
+**Chunk 1**
+Lines added: 3, lines removed: 3
+
+```diff
+@@ -6,7 +6,7 @@
+  });
+  
+- // Stored prompt for recipe generation
+- const RECIPE_PROMPT_ID = 'pmpt_6937901746708193aa894b15f3da737e04ccb44cf376948e';
+- const RECIPE_PROMPT_VERSION = '1';
++ // Stored prompt for recipe generation (from env)
++ const RECIPE_PROMPT_ID = process.env.OPENAI_RECIPE_PROMPT_ID!;
++ const RECIPE_PROMPT_VERSION = process.env.OPENAI_RECIPE_PROMPT_VERSION!;
+  
+  interface Ingredient {
+```
+
+</details>
+
+</tool-use>
+
+---
+
+<think><details><summary>Thought Process</summary>
+The .env.local file is blocked by gitignore (for security reasons - it contains the API key). I can't edit it directly. But I updated the API routes to read from environment variables. The user will need to manually add the prompt IDs to their .env.local file.</details></think>
+
+---
+
+I've updated the API routes to read from environment variables. However, I can't edit `.env.local` directly (it's protected).
+
+**Please add these lines to your `.env.local` file manually:**
+
+```
+# OpenAI Stored Prompts
+OPENAI_ANALYZE_PROMPT_ID=pmpt_6937873fb2ac819392f467daad5947060233110f8d0b4723
+OPENAI_ANALYZE_PROMPT_VERSION=3
+
+OPENAI_RECIPE_PROMPT_ID=pmpt_6937901746708193aa894b15f3da737e04ccb44cf376948e
+OPENAI_RECIPE_PROMPT_VERSION=1
+```
+
+The API routes now reference:
+- `process.env.OPENAI_ANALYZE_PROMPT_ID`
+- `process.env.OPENAI_ANALYZE_PROMPT_VERSION`
+- `process.env.OPENAI_RECIPE_PROMPT_ID`
+- `process.env.OPENAI_RECIPE_PROMPT_VERSION`
+
+You'll need to restart the dev server after updating `.env.local` for the changes to take effect.
 
 ---
 

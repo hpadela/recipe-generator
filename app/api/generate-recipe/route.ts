@@ -5,6 +5,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Stored prompt for recipe generation (from env)
+const RECIPE_PROMPT_ID = process.env.OPENAI_RECIPE_PROMPT_ID!;
+const RECIPE_PROMPT_VERSION = process.env.OPENAI_RECIPE_PROMPT_VERSION!;
+
 interface Ingredient {
   name: string;
   quantity: string;
@@ -49,83 +53,45 @@ export async function POST(request: NextRequest) {
     // Determine cuisine
     const cuisineStyle = cuisine === 'custom' ? customCuisine : cuisine;
 
-    // Build ingredients list
-    const ingredientsList = ingredients
-      .map(ing => `${ing.name} (${ing.quantity})`)
-      .join(', ');
+    // Format ingredients as JSON string (matching expected input format)
+    const ingredientsJson = JSON.stringify(
+      ingredients.map(ing => ({
+        name: ing.name,
+        quantity: ing.quantity,
+      }))
+    );
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an expert chef creating personalized recipes. Generate a complete recipe based on the provided ingredients and preferences.
+    // Build input for the stored prompt
+    // The input format depends on how your prompt variables are defined
+    const inputData = [
+      {
+        type: 'text' as const,
+        text: `INGREDIENTS: ${ingredientsJson}
+DIETARY_RESTRICTIONS: ${dietaryString}
+CUISINE_STYLE: ${cuisineStyle || 'Any'}
+SKILL_LEVEL: ${skillLevel}
+MAX_COOKING_TIME: ${cookingTime} minutes`,
+      },
+    ];
 
-Return a JSON object with this exact structure:
-{
-  "title": "Recipe title",
-  "description": "A brief, appetizing 2-3 sentence description",
-  "prepTime": "X minutes",
-  "cookTime": "X minutes",
-  "totalTime": "X minutes",
-  "servings": "X servings",
-  "difficulty": "Easy/Medium/Hard",
-  "tags": ["tag1", "tag2", "tag3", "tag4"],
-  "ingredients": [
-    {
-      "item": "ingredient name",
-      "amount": "quantity",
-      "preparation": "optional prep instructions (e.g., 'diced', 'minced')"
-    }
-  ],
-  "instructions": [
-    {
-      "step": 1,
-      "text": "Instruction text",
-      "tip": "Optional helpful tip for this step"
-    }
-  ],
-  "featuredImagePrompt": "A detailed prompt for generating an appetizing photo of this dish",
-  "nutritionEstimate": {
-    "calories": "~XXX per serving",
-    "protein": "Xg",
-    "carbs": "Xg",
-    "fat": "Xg"
-  }
-}
-
-Guidelines:
-- Use primarily the ingredients provided, but you may add common pantry staples (salt, pepper, oil, etc.)
-- Respect all dietary restrictions strictly
-- Match the cuisine style requested
-- Adjust complexity based on skill level (${skillLevel})
-- Keep total time within ${cookingTime} minutes
-- Include 3-6 helpful tips throughout the instructions
-- Make the featuredImagePrompt vivid and specific for food photography`,
+    const response = await (openai as any).responses.create({
+      prompt: {
+        id: RECIPE_PROMPT_ID,
+        version: RECIPE_PROMPT_VERSION,
+      },
+      input: inputData,
+      text: {
+        format: {
+          type: 'json_object',
         },
-        {
-          role: 'user',
-          content: `Create a recipe with these parameters:
-
-AVAILABLE INGREDIENTS:
-${ingredientsList}
-
-DIETARY RESTRICTIONS: ${dietaryString}
-
-CUISINE STYLE: ${cuisineStyle || 'Any'}
-
-SKILL LEVEL: ${skillLevel}
-
-MAXIMUM COOKING TIME: ${cookingTime} minutes
-
-Please create a delicious recipe that makes the best use of these ingredients.`,
-        },
-      ],
-      response_format: { type: 'json_object' },
-      max_tokens: 2000,
+      },
+      reasoning: {},
+      max_output_tokens: 2048,
+      store: true,
     });
 
-    const content = response.choices[0]?.message?.content;
+    // Extract the response content
+    const content = response.output_text || response.choices?.[0]?.message?.content;
     if (!content) {
       throw new Error('No response from AI');
     }
@@ -135,9 +101,8 @@ Please create a delicious recipe that makes the best use of these ingredients.`,
   } catch (error) {
     console.error('Error generating recipe:', error);
     return NextResponse.json(
-      { error: 'Failed to generate recipe' },
+      { error: 'Failed to generate recipe', details: String(error) },
       { status: 500 }
     );
   }
 }
-

@@ -5,6 +5,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Stored prompt for food image analysis (from env)
+const ANALYZE_PROMPT_ID = process.env.OPENAI_ANALYZE_PROMPT_ID!;
+const ANALYZE_PROMPT_VERSION = process.env.OPENAI_ANALYZE_PROMPT_VERSION!;
+
 export async function POST(request: NextRequest) {
   try {
     const { images } = await request.json();
@@ -16,54 +20,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Build the content array with all images
-    const imageContent: OpenAI.Chat.Completions.ChatCompletionContentPart[] = images.map(
-      (imageData: string) => ({
-        type: 'image_url' as const,
-        image_url: {
-          url: imageData,
-          detail: 'high' as const,
-        },
-      })
-    );
+    // Build image inputs for the prompt
+    const imageInputs = images.map((imageData: string, index: number) => ({
+      type: 'image' as const,
+      image_url: imageData,
+    }));
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an expert culinary assistant that identifies ingredients from photos. 
-Analyze the provided image(s) and identify all visible food ingredients.
-Return a JSON object with the following structure:
-{
-  "ingredients": [
-    {
-      "name": "ingredient name",
-      "quantity": "estimated quantity (e.g., '4 large', '~1 cup', 'bottle visible')",
-      "category": "one of: protein, vegetable, dairy, spice, condiment, grain, fruit, other"
-    }
-  ],
-  "notes": "any relevant observations about the ingredients"
-}
-Be thorough but only include items you can clearly identify as food ingredients.
-Estimate quantities based on what's visible in the image.`,
+    const response = await (openai as any).responses.create({
+      prompt: {
+        id: ANALYZE_PROMPT_ID,
+        version: ANALYZE_PROMPT_VERSION,
+      },
+      input: imageInputs,
+      text: {
+        format: {
+          type: 'json_object',
         },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: 'Please identify all the food ingredients visible in these image(s):',
-            },
-            ...imageContent,
-          ],
-        },
-      ],
-      response_format: { type: 'json_object' },
-      max_tokens: 1000,
+      },
+      reasoning: {},
+      max_output_tokens: 2048,
+      store: true,
     });
 
-    const content = response.choices[0]?.message?.content;
+    // Extract the response content
+    const content = response.output_text || response.choices?.[0]?.message?.content;
     if (!content) {
       throw new Error('No response from AI');
     }
@@ -73,9 +53,8 @@ Estimate quantities based on what's visible in the image.`,
   } catch (error) {
     console.error('Error analyzing ingredients:', error);
     return NextResponse.json(
-      { error: 'Failed to analyze ingredients' },
+      { error: 'Failed to analyze ingredients', details: String(error) },
       { status: 500 }
     );
   }
 }
-
