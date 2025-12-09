@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 export interface RecipeData {
   title: string;
@@ -38,6 +40,8 @@ interface RecipeDisplayProps {
 
 export default function RecipeDisplay({ recipe, onStartOver, onRegenerate }: RecipeDisplayProps) {
   const [checkedIngredients, setCheckedIngredients] = useState<Set<number>>(new Set());
+  const [isDownloading, setIsDownloading] = useState(false);
+  const recipeRef = useRef<HTMLDivElement>(null);
 
   const toggleIngredient = (index: number) => {
     const newChecked = new Set(checkedIngredients);
@@ -49,12 +53,115 @@ export default function RecipeDisplay({ recipe, onStartOver, onRegenerate }: Rec
     setCheckedIngredients(newChecked);
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handleDownloadPDF = async () => {
+    if (!recipeRef.current) return;
+    
+    setIsDownloading(true);
+    
+    // Store original image src to restore later
+    const imgElement = recipeRef.current.querySelector('img') as HTMLImageElement | null;
+    const originalSrc = imgElement?.src;
+    
+    try {
+      // Convert external image to base64 via proxy to avoid CORS issues
+      if (imgElement && recipe.imageUrl) {
+        try {
+          const proxyResponse = await fetch(`/api/proxy-image?url=${encodeURIComponent(recipe.imageUrl)}`);
+          if (proxyResponse.ok) {
+            const { dataUrl } = await proxyResponse.json();
+            imgElement.src = dataUrl;
+            // Wait for image to load with new src
+            await new Promise((resolve) => {
+              imgElement.onload = resolve;
+              setTimeout(resolve, 100); // Fallback timeout
+            });
+          }
+        } catch (proxyError) {
+          console.warn('Could not proxy image, PDF may not include the image:', proxyError);
+        }
+      }
+      
+      const canvas = await html2canvas(recipeRef.current, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#FFFBF5',
+        logging: false,
+      });
+      
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+      
+      // Calculate total height needed
+      const scaledImgHeight = imgHeight * ratio * (pdfWidth / imgWidth) * 0.95;
+      const pageContentHeight = pdfHeight - 20; // margins
+      
+      if (scaledImgHeight <= pageContentHeight) {
+        // Single page
+        pdf.addImage(imgData, 'PNG', 10, 10, pdfWidth - 20, scaledImgHeight);
+      } else {
+        // Multi-page
+        let remainingHeight = imgHeight;
+        let sourceY = 0;
+        const sourcePageHeight = (pageContentHeight / (pdfWidth - 20)) * imgWidth;
+        
+        while (remainingHeight > 0) {
+          const sliceHeight = Math.min(sourcePageHeight, remainingHeight);
+          
+          // Create a temporary canvas for this page slice
+          const pageCanvas = document.createElement('canvas');
+          pageCanvas.width = imgWidth;
+          pageCanvas.height = sliceHeight;
+          const ctx = pageCanvas.getContext('2d');
+          
+          if (ctx) {
+            ctx.drawImage(
+              canvas,
+              0, sourceY, imgWidth, sliceHeight,
+              0, 0, imgWidth, sliceHeight
+            );
+            
+            const pageImgData = pageCanvas.toDataURL('image/png');
+            const destHeight = (sliceHeight / imgWidth) * (pdfWidth - 20);
+            pdf.addImage(pageImgData, 'PNG', 10, 10, pdfWidth - 20, destHeight);
+          }
+          
+          remainingHeight -= sliceHeight;
+          sourceY += sliceHeight;
+          
+          if (remainingHeight > 0) {
+            pdf.addPage();
+          }
+        }
+      }
+      
+      // Generate filename from recipe title
+      const filename = `${recipe.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-recipe.pdf`;
+      pdf.save(filename);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+    } finally {
+      // Restore original image src
+      if (imgElement && originalSrc) {
+        imgElement.src = originalSrc;
+      }
+      setIsDownloading(false);
+    }
   };
 
   return (
     <div className="max-w-2xl mx-auto">
+      <div ref={recipeRef}>
       {/* Recipe Header */}
       {recipe.imageUrl && (
         <div className="relative h-64 mb-6 rounded-xl overflow-hidden">
@@ -239,13 +346,16 @@ export default function RecipeDisplay({ recipe, onStartOver, onRegenerate }: Rec
         </div>
       </div>
 
+      </div>
+
       {/* Action Buttons */}
       <div className="flex gap-4 no-print">
         <button
-          onClick={handlePrint}
+          onClick={handleDownloadPDF}
+          disabled={isDownloading}
           className="btn btn-secondary flex-1"
         >
-          🖨️ Print
+          {isDownloading ? '⏳ Generating...' : '📥 Download PDF'}
         </button>
         <button
           onClick={onRegenerate}

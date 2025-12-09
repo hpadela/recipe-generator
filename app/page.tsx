@@ -21,11 +21,48 @@ interface LoadingStep {
   status: LoadingStepStatus;
 }
 
-// Helper to convert File to base64 data URL
+// Helper to compress and convert File to base64 data URL
+// Resizes large images and compresses to JPEG for smaller payload
 async function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
+    const img = new Image();
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
+    
+    reader.onload = () => {
+      img.onload = () => {
+        // Max dimension for uploaded images (keeps quality while reducing size)
+        const MAX_DIM = 1200;
+        let { width, height } = img;
+        
+        // Only resize if image is larger than max dimension
+        if (width > MAX_DIM || height > MAX_DIM) {
+          if (width > height) {
+            height = Math.round((height * MAX_DIM) / width);
+            width = MAX_DIM;
+          } else {
+            width = Math.round((width * MAX_DIM) / height);
+            height = MAX_DIM;
+          }
+        }
+        
+        // Create canvas and draw resized image
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Failed to get canvas context'));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // Convert to JPEG with 0.8 quality for good balance of size/quality
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        resolve(dataUrl);
+      };
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = reader.result as string;
+    };
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
@@ -82,8 +119,20 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to analyze ingredients');
+        let errorMessage = 'Failed to analyze ingredients';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // Response might not be JSON (e.g., "Request Entity Too Large")
+          const text = await response.text().catch(() => '');
+          if (text.includes('Entity Too Large') || response.status === 413) {
+            errorMessage = 'Images are too large. Please use smaller or fewer images.';
+          } else if (text) {
+            errorMessage = text;
+          }
+        }
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
