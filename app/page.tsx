@@ -11,71 +11,17 @@ import IngredientsEditor, { Ingredient } from './components/IngredientsEditor';
 import LoadingScreen from './components/LoadingScreen';
 import RecipeDisplay, { RecipeData } from './components/RecipeDisplay';
 
-type AppStep = 'form' | 'ingredients' | 'loading' | 'recipe';
+type AppStep = 'form' | 'analyzing' | 'ingredients' | 'loading' | 'recipe';
 
-// Placeholder recipe data for demonstration
-const PLACEHOLDER_RECIPE: RecipeData = {
-  title: "Tuscan Baked Eggs with Tomatoes and Parmesan",
-  description: "A rustic Italian breakfast or light dinner featuring eggs baked in a bed of blistered cherry tomatoes, topped with shaved parmesan and fresh basil. Simple, elegant, and ready in under 30 minutes.",
-  prepTime: "10 min",
-  cookTime: "18 min",
-  totalTime: "28 minutes",
-  servings: "2",
-  difficulty: "Medium",
-  tags: ["Vegetarian", "One-Pan", "Italian", "Brunch"],
-  ingredients: [
-    { item: "Cherry tomatoes", amount: "1 cup", preparation: "halved" },
-    { item: "Eggs", amount: "4 large" },
-    { item: "Parmesan cheese", amount: "50g", preparation: "shaved" },
-    { item: "Fresh basil", amount: "8-10 leaves", preparation: "torn" },
-    { item: "Olive oil", amount: "2 tbsp" },
-    { item: "Salt and pepper", amount: "to taste" },
-  ],
-  instructions: [
-    { 
-      step: 1, 
-      text: "Preheat your oven to 400°F (200°C). Place an oven-safe skillet or baking dish in the oven while it preheats.",
-      tip: "A cast iron skillet works beautifully here and helps create crispy edges on the tomatoes."
-    },
-    { 
-      step: 2, 
-      text: "Carefully remove the hot skillet. Add olive oil and swirl to coat. Add the halved cherry tomatoes in a single layer, cut-side down."
-    },
-    { 
-      step: 3, 
-      text: "Return to oven and roast for 8-10 minutes until tomatoes are softened and starting to blister."
-    },
-    { 
-      step: 4, 
-      text: "Remove skillet and create 4 small wells in the tomatoes. Crack one egg into each well. Season with salt and pepper.",
-      tip: "Crack eggs into a small bowl first to avoid shells."
-    },
-    { 
-      step: 5, 
-      text: "Scatter half the parmesan over the top. Bake for 6-8 minutes until whites are set but yolks remain runny.",
-      tip: "For firmer yolks, add 2-3 minutes."
-    },
-    { 
-      step: 6, 
-      text: "Top with remaining parmesan and torn fresh basil. Drizzle with extra olive oil and serve immediately."
-    },
-  ],
-  nutritionEstimate: {
-    calories: "320",
-    protein: "18g",
-    carbs: "6g",
-    fat: "25g",
-  },
-};
-
-// Placeholder ingredients for demonstration
-const PLACEHOLDER_INGREDIENTS: Ingredient[] = [
-  { id: '1', name: 'Eggs', quantity: '4 large', category: 'protein' },
-  { id: '2', name: 'Cherry Tomatoes', quantity: '~1 cup', category: 'vegetable' },
-  { id: '3', name: 'Parmesan Cheese', quantity: '~100g block', category: 'dairy' },
-  { id: '4', name: 'Fresh Basil', quantity: '1 bunch', category: 'spice' },
-  { id: '5', name: 'Olive Oil', quantity: 'bottle visible', category: 'condiment' },
-];
+// Helper to convert File to base64 data URL
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function Home() {
   // Current step in the flow
@@ -105,52 +51,155 @@ export default function Home() {
   // Recipe result
   const [recipe, setRecipe] = useState<RecipeData | null>(null);
 
+  // Error state
+  const [error, setError] = useState<string | null>(null);
+
   // Check if form is valid for submission
   const isFormValid = images.length > 0 && (cuisine || customCuisine);
 
-  // Handle analyze button click
-  const handleAnalyze = () => {
-    // TODO: Call AI to analyze images
-    // For now, use placeholder ingredients
-    setIngredients(PLACEHOLDER_INGREDIENTS);
-    setCurrentStep('ingredients');
+  // Handle analyze button click - calls the real API
+  const handleAnalyze = async () => {
+    setError(null);
+    setCurrentStep('analyzing');
+
+    try {
+      // Convert all images to base64
+      const base64Images = await Promise.all(images.map(fileToBase64));
+
+      // Call the analyze API
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ images: base64Images }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to analyze ingredients');
+      }
+
+      const data = await response.json();
+
+      // Convert API response to our Ingredient format
+      const analyzedIngredients: Ingredient[] = data.ingredients.map(
+        (ing: { name: string; quantity: string; category?: string }, index: number) => ({
+          id: String(index + 1),
+          name: ing.name,
+          quantity: ing.quantity,
+          category: ing.category || 'other',
+        })
+      );
+
+      setIngredients(analyzedIngredients);
+      setCurrentStep('ingredients');
+    } catch (err) {
+      console.error('Error analyzing:', err);
+      setError(err instanceof Error ? err.message : 'Failed to analyze ingredients');
+      setCurrentStep('form');
+    }
   };
 
-  // Handle generate recipe
-  const handleGenerateRecipe = () => {
+  // Handle generate recipe - calls the real APIs
+  const handleGenerateRecipe = async () => {
+    setError(null);
     setCurrentStep('loading');
-    
-    // Simulate loading progress
-    // TODO: Replace with actual API calls
+
+    // Reset loading steps
     setLoadingSteps([
       { id: 'analyze', label: 'Ingredients analyzed', status: 'completed' },
       { id: 'recipe', label: 'Generating recipe', status: 'in-progress' },
-      { id: 'image', label: 'Creating image', status: 'pending' },
+      { id: 'image', label: 'Creating image', status: wantsImage ? 'pending' : 'completed' },
     ]);
 
-    // Simulate recipe generation delay
-    setTimeout(() => {
+    try {
+      // Step 1: Generate recipe
+      const recipeResponse = await fetch('/api/generate-recipe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ingredients,
+          dietaryRestrictions,
+          customDietary,
+          cuisine,
+          customCuisine,
+          skillLevel,
+          cookingTime,
+        }),
+      });
+
+      if (!recipeResponse.ok) {
+        const errorData = await recipeResponse.json();
+        throw new Error(errorData.error || 'Failed to generate recipe');
+      }
+
+      const recipeData = await recipeResponse.json();
+
+      // Update loading state
       setLoadingSteps([
         { id: 'analyze', label: 'Ingredients analyzed', status: 'completed' },
         { id: 'recipe', label: 'Generating recipe', status: 'completed' },
         { id: 'image', label: 'Creating image', status: wantsImage ? 'in-progress' : 'completed' },
       ]);
 
-      if (wantsImage) {
-        setTimeout(() => {
-          setLoadingSteps([
-            { id: 'analyze', label: 'Ingredients analyzed', status: 'completed' },
-            { id: 'recipe', label: 'Generating recipe', status: 'completed' },
-            { id: 'image', label: 'Creating image', status: 'completed' },
-          ]);
-          setRecipe(PLACEHOLDER_RECIPE);
-          setCurrentStep('recipe');
-        }, 1500);
-      } else {
-        setRecipe(PLACEHOLDER_RECIPE);
-        setCurrentStep('recipe');
+      // Step 2: Generate image (if requested)
+      let imageUrl: string | undefined;
+      if (wantsImage && recipeData.featuredImagePrompt) {
+        try {
+          const imageResponse = await fetch('/api/generate-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: recipeData.featuredImagePrompt,
+              title: recipeData.title,
+              style: imageStyle,
+            }),
+          });
+
+          if (imageResponse.ok) {
+            const imageData = await imageResponse.json();
+            imageUrl = imageData.imageUrl;
+          }
+        } catch (imgErr) {
+          console.error('Image generation failed:', imgErr);
+          // Continue without image - not a fatal error
+        }
       }
-    }, 2000);
+
+      // Update loading state to complete
+      setLoadingSteps([
+        { id: 'analyze', label: 'Ingredients analyzed', status: 'completed' },
+        { id: 'recipe', label: 'Generating recipe', status: 'completed' },
+        { id: 'image', label: 'Creating image', status: 'completed' },
+      ]);
+
+      // Format the recipe for display
+      const formattedRecipe: RecipeData = {
+        title: recipeData.title,
+        description: recipeData.description,
+        prepTime: recipeData.prepTime,
+        cookTime: recipeData.cookTime,
+        totalTime: recipeData.totalTime,
+        servings: recipeData.servings,
+        difficulty: recipeData.difficulty,
+        tags: recipeData.tags || [],
+        ingredients: recipeData.ingredients || [],
+        instructions: recipeData.instructions || [],
+        nutritionEstimate: recipeData.nutritionEstimate || {
+          calories: 'N/A',
+          protein: 'N/A',
+          carbs: 'N/A',
+          fat: 'N/A',
+        },
+        imageUrl,
+      };
+
+      setRecipe(formattedRecipe);
+      setCurrentStep('recipe');
+    } catch (err) {
+      console.error('Error generating recipe:', err);
+      setError(err instanceof Error ? err.message : 'Failed to generate recipe');
+      setCurrentStep('ingredients');
+    }
   };
 
   // Handle regenerate (keeps ingredients, regenerates recipe)
@@ -172,6 +221,7 @@ export default function Home() {
     setImageStyle('food-photography');
     setIngredients([]);
     setRecipe(null);
+    setError(null);
     setLoadingSteps([
       { id: 'analyze', label: 'Ingredients analyzed', status: 'pending' },
       { id: 'recipe', label: 'Generating recipe', status: 'pending' },
@@ -205,6 +255,26 @@ export default function Home() {
             Transform what you have into something delicious
           </p>
         </header>
+
+        {/* Error Display */}
+        {error && (
+          <div 
+            className="mb-6 p-4 rounded-lg border"
+            style={{ 
+              backgroundColor: 'rgba(214, 69, 69, 0.1)', 
+              borderColor: 'var(--color-error)',
+              color: 'var(--color-error)'
+            }}
+          >
+            <p className="font-medium">⚠️ {error}</p>
+            <button 
+              onClick={() => setError(null)}
+              className="text-sm underline mt-2"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* Form Step */}
         {currentStep === 'form' && (
@@ -256,6 +326,17 @@ export default function Home() {
               Analyze Ingredients →
             </button>
           </div>
+        )}
+
+        {/* Analyzing Step (loading state for image analysis) */}
+        {currentStep === 'analyzing' && (
+          <LoadingScreen 
+            steps={[
+              { id: 'analyze', label: 'Analyzing ingredients', status: 'in-progress' },
+              { id: 'recipe', label: 'Generating recipe', status: 'pending' },
+              { id: 'image', label: 'Creating image', status: 'pending' },
+            ]} 
+          />
         )}
 
         {/* Ingredients Review Step */}

@@ -20,18 +20,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Build image inputs for the prompt
-    const imageInputs = images.map((imageData: string, index: number) => ({
-      type: 'image' as const,
+    // Build image content for the message
+    const imageContent: Array<{ type: string; image_url?: string; text?: string }> = images.map((imageData: string) => ({
+      type: 'input_image' as const,
       image_url: imageData,
     }));
+
+    // Add text instruction (required for json_object format - must contain word "json")
+    imageContent.push({
+      type: 'input_text',
+      text: 'Analyze these images and identify all food ingredients. Return the results as JSON.',
+    });
 
     const response = await (openai as any).responses.create({
       prompt: {
         id: ANALYZE_PROMPT_ID,
         version: ANALYZE_PROMPT_VERSION,
       },
-      input: imageInputs,
+      input: [
+        {
+          type: 'message',
+          role: 'user',
+          content: imageContent,
+        },
+      ],
       text: {
         format: {
           type: 'json_object',

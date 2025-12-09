@@ -61,25 +61,32 @@ export async function POST(request: NextRequest) {
       }))
     );
 
-    // Build input for the stored prompt
-    // The input format depends on how your prompt variables are defined
-    const inputData = [
-      {
-        type: 'text' as const,
-        text: `INGREDIENTS: ${ingredientsJson}
-DIETARY_RESTRICTIONS: ${dietaryString}
-CUISINE_STYLE: ${cuisineStyle || 'Any'}
-SKILL_LEVEL: ${skillLevel}
-MAX_COOKING_TIME: ${cookingTime} minutes`,
-      },
-    ];
-
+    // Use prompt variables for stored prompts
+    // Note: json_object format requires the word "json" in the input
     const response = await (openai as any).responses.create({
       prompt: {
         id: RECIPE_PROMPT_ID,
         version: RECIPE_PROMPT_VERSION,
+        variables: {
+          ingredients: ingredientsJson,
+          dietary_restrictions: dietaryString,
+          cuisine_style: cuisineStyle || 'Any',
+          skill_level: skillLevel,
+          cooking_time: `${cookingTime} minutes`,
+        },
       },
-      input: inputData,
+      input: [
+        {
+          type: 'message',
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: 'Generate a recipe based on the provided variables. Return the result as JSON.',
+            },
+          ],
+        },
+      ],
       text: {
         format: {
           type: 'json_object',

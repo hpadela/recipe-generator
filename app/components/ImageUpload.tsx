@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 
 interface ImageUploadProps {
   images: File[];
@@ -9,7 +9,24 @@ interface ImageUploadProps {
 
 export default function ImageUpload({ images, onImagesChange }: ImageUploadProps) {
   const [isDragging, setIsDragging] = useState(false);
+  const [previews, setPreviews] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Generate preview URLs when images change
+  useEffect(() => {
+    // Revoke old URLs to prevent memory leaks
+    previews.forEach(url => URL.revokeObjectURL(url));
+    
+    // Create new URLs
+    const newPreviews = images.map(file => URL.createObjectURL(file));
+    setPreviews(newPreviews);
+
+    // Cleanup on unmount
+    return () => {
+      newPreviews.forEach(url => URL.revokeObjectURL(url));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [images]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -41,6 +58,11 @@ export default function ImageUpload({ images, onImagesChange }: ImageUploadProps
     
     if (files.length > 0) {
       onImagesChange([...images, ...files]);
+    }
+    
+    // Reset input so same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   }, [images, onImagesChange]);
 
@@ -110,12 +132,12 @@ export default function ImageUpload({ images, onImagesChange }: ImageUploadProps
       </div>
 
       {/* Image Previews */}
-      {images.length > 0 && (
+      {previews.length > 0 && (
         <div className="mt-4 grid grid-cols-3 gap-3">
-          {images.map((image, index) => (
+          {previews.map((preview, index) => (
             <div key={index} className="relative group">
               <img
-                src={URL.createObjectURL(image)}
+                src={preview}
                 alt={`Ingredient ${index + 1}`}
                 className="w-full h-24 object-cover rounded-lg"
               />
@@ -136,4 +158,3 @@ export default function ImageUpload({ images, onImagesChange }: ImageUploadProps
     </div>
   );
 }
-
