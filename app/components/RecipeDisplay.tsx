@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 
 export interface RecipeData {
   title: string;
@@ -41,7 +40,6 @@ interface RecipeDisplayProps {
 export default function RecipeDisplay({ recipe, onStartOver, onRegenerate }: RecipeDisplayProps) {
   const [checkedIngredients, setCheckedIngredients] = useState<Set<number>>(new Set());
   const [isDownloading, setIsDownloading] = useState(false);
-  const recipeRef = useRef<HTMLDivElement>(null);
 
   const toggleIngredient = (index: number) => {
     const newChecked = new Set(checkedIngredients);
@@ -54,114 +52,184 @@ export default function RecipeDisplay({ recipe, onStartOver, onRegenerate }: Rec
   };
 
   const handleDownloadPDF = async () => {
-    if (!recipeRef.current) return;
-    
     setIsDownloading(true);
     
-    // Store original image src to restore later
-    const imgElement = recipeRef.current.querySelector('img') as HTMLImageElement | null;
-    const originalSrc = imgElement?.src;
-    
     try {
-      // Convert external image to base64 via proxy to avoid CORS issues
-      if (imgElement && recipe.imageUrl) {
-        try {
-          const proxyResponse = await fetch(`/api/proxy-image?url=${encodeURIComponent(recipe.imageUrl)}`);
-          if (proxyResponse.ok) {
-            const { dataUrl } = await proxyResponse.json();
-            imgElement.src = dataUrl;
-            // Wait for image to load with new src
-            await new Promise((resolve) => {
-              imgElement.onload = resolve;
-              setTimeout(resolve, 100); // Fallback timeout
-            });
-          }
-        } catch (proxyError) {
-          console.warn('Could not proxy image, PDF may not include the image:', proxyError);
-        }
-      }
-      
-      const canvas = await html2canvas(recipeRef.current, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#FFFBF5',
-        logging: false,
-      });
-      
-      const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
         format: 'a4',
       });
       
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = canvas.width;
-      const imgHeight = canvas.height;
-      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 15;
+      const contentWidth = pageWidth - margin * 2;
+      let y = margin;
       
-      // Calculate total height needed
-      const scaledImgHeight = imgHeight * ratio * (pdfWidth / imgWidth) * 0.95;
-      const pageContentHeight = pdfHeight - 20; // margins
+      const colors = {
+        primary: [232, 93, 4] as [number, number, number],      // #E85D04
+        text: [61, 35, 20] as [number, number, number],         // #3D2314
+        textSecondary: [139, 90, 43] as [number, number, number], // #8B5A2B
+        background: [255, 251, 245] as [number, number, number], // #FFFBF5
+        cardBg: [255, 255, 255] as [number, number, number],
+        amber: [254, 243, 199] as [number, number, number],     // amber-100
+      };
       
-      if (scaledImgHeight <= pageContentHeight) {
-        // Single page
-        pdf.addImage(imgData, 'PNG', 10, 10, pdfWidth - 20, scaledImgHeight);
-      } else {
-        // Multi-page
-        let remainingHeight = imgHeight;
-        let sourceY = 0;
-        const sourcePageHeight = (pageContentHeight / (pdfWidth - 20)) * imgWidth;
-        
-        while (remainingHeight > 0) {
-          const sliceHeight = Math.min(sourcePageHeight, remainingHeight);
-          
-          // Create a temporary canvas for this page slice
-          const pageCanvas = document.createElement('canvas');
-          pageCanvas.width = imgWidth;
-          pageCanvas.height = sliceHeight;
-          const ctx = pageCanvas.getContext('2d');
-          
-          if (ctx) {
-            ctx.drawImage(
-              canvas,
-              0, sourceY, imgWidth, sliceHeight,
-              0, 0, imgWidth, sliceHeight
-            );
-            
-            const pageImgData = pageCanvas.toDataURL('image/png');
-            const destHeight = (sliceHeight / imgWidth) * (pdfWidth - 20);
-            pdf.addImage(pageImgData, 'PNG', 10, 10, pdfWidth - 20, destHeight);
+      // Helper to check and add new page
+      const checkNewPage = (neededHeight: number) => {
+        if (y + neededHeight > pageHeight - margin) {
+          pdf.addPage();
+          y = margin;
+          return true;
+        }
+        return false;
+      };
+      
+      // Helper for wrapped text
+      const addWrappedText = (text: string, x: number, maxWidth: number, lineHeight: number) => {
+        const lines = pdf.splitTextToSize(text, maxWidth);
+        for (const line of lines) {
+          checkNewPage(lineHeight);
+          pdf.text(line, x, y);
+          y += lineHeight;
+        }
+      };
+      
+      // Add recipe image if available
+      if (recipe.imageUrl) {
+        try {
+          const proxyResponse = await fetch(`/api/proxy-image?url=${encodeURIComponent(recipe.imageUrl)}`);
+          if (proxyResponse.ok) {
+            const { dataUrl } = await proxyResponse.json();
+            const imgHeight = 50;
+            pdf.addImage(dataUrl, 'JPEG', margin, y, contentWidth, imgHeight);
+            y += imgHeight + 5;
           }
-          
-          remainingHeight -= sliceHeight;
-          sourceY += sliceHeight;
-          
-          if (remainingHeight > 0) {
-            pdf.addPage();
-          }
+        } catch {
+          // Skip image if proxy fails
         }
       }
       
-      // Generate filename from recipe title
+      // Title
+      pdf.setFontSize(24);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(...colors.primary);
+      const titleLines = pdf.splitTextToSize(recipe.title, contentWidth);
+      for (const line of titleLines) {
+        pdf.text(line, margin, y);
+        y += 10;
+      }
+      y += 3;
+      
+      // Quick stats bar
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(...colors.textSecondary);
+      const stats = `🔪 ${recipe.prepTime} Prep  •  🔥 ${recipe.cookTime} Cook  •  🍽️ ${recipe.servings} Servings  •  📊 ${recipe.difficulty}`;
+      pdf.text(stats, margin, y);
+      y += 8;
+      
+      // Tags
+      if (recipe.tags.length > 0) {
+        pdf.setFontSize(9);
+        pdf.setTextColor(...colors.primary);
+        pdf.text(recipe.tags.join('  •  '), margin, y);
+        y += 8;
+      }
+      
+      // Description
+      pdf.setFontSize(11);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(...colors.textSecondary);
+      addWrappedText(recipe.description, margin, contentWidth, 5);
+      y += 5;
+      
+      // Ingredients section
+      checkNewPage(20);
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(...colors.text);
+      pdf.text('Ingredients', margin, y);
+      y += 8;
+      
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'normal');
+      for (const ingredient of recipe.ingredients) {
+        checkNewPage(6);
+        pdf.setTextColor(...colors.text);
+        const ingredientText = `• ${ingredient.amount} ${ingredient.item}${ingredient.preparation ? `, ${ingredient.preparation}` : ''}`;
+        const ingredientLines = pdf.splitTextToSize(ingredientText, contentWidth);
+        for (const line of ingredientLines) {
+          pdf.text(line, margin, y);
+          y += 5;
+        }
+      }
+      y += 5;
+      
+      // Instructions section
+      checkNewPage(20);
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(...colors.text);
+      pdf.text('Instructions', margin, y);
+      y += 8;
+      
+      pdf.setFontSize(10);
+      for (const instruction of recipe.instructions) {
+        checkNewPage(15);
+        
+        // Step number
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(...colors.primary);
+        pdf.text(`Step ${instruction.step}`, margin, y);
+        y += 5;
+        
+        // Instruction text
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(...colors.text);
+        addWrappedText(instruction.text, margin, contentWidth, 5);
+        
+        // Tip if present
+        if (instruction.tip) {
+          checkNewPage(10);
+          pdf.setTextColor(...colors.textSecondary);
+          pdf.setFontSize(9);
+          addWrappedText(`💡 Tip: ${instruction.tip}`, margin + 5, contentWidth - 5, 4);
+          pdf.setFontSize(10);
+        }
+        y += 3;
+      }
+      y += 5;
+      
+      // Nutrition section
+      checkNewPage(25);
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(...colors.text);
+      pdf.text('Estimated Nutrition (per serving)', margin, y);
+      y += 8;
+      
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'normal');
+      const nutrition = recipe.nutritionEstimate;
+      const nutritionText = `Calories: ${nutrition.calories}  •  Protein: ${nutrition.protein}  •  Carbs: ${nutrition.carbs}  •  Fat: ${nutrition.fat}`;
+      pdf.setTextColor(...colors.primary);
+      pdf.text(nutritionText, margin, y);
+      
+      // Generate filename and save
       const filename = `${recipe.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-recipe.pdf`;
       pdf.save(filename);
     } catch (error) {
       console.error('Error generating PDF:', error);
     } finally {
-      // Restore original image src
-      if (imgElement && originalSrc) {
-        imgElement.src = originalSrc;
-      }
       setIsDownloading(false);
     }
   };
 
   return (
     <div className="max-w-2xl mx-auto">
-      <div ref={recipeRef}>
+      <div>
       {/* Recipe Header */}
       {recipe.imageUrl && (
         <div className="relative h-64 mb-6 rounded-xl overflow-hidden">
