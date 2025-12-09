@@ -13,6 +13,14 @@ import RecipeDisplay, { RecipeData } from './components/RecipeDisplay';
 
 type AppStep = 'form' | 'analyzing' | 'ingredients' | 'loading' | 'recipe';
 
+type LoadingStepStatus = 'pending' | 'in-progress' | 'completed';
+
+interface LoadingStep {
+  id: string;
+  label: string;
+  status: LoadingStepStatus;
+}
+
 // Helper to convert File to base64 data URL
 async function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -42,10 +50,10 @@ export default function Home() {
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
 
   // Loading state
-  const [loadingSteps, setLoadingSteps] = useState([
-    { id: 'analyze', label: 'Ingredients analyzed', status: 'pending' as const },
-    { id: 'recipe', label: 'Generating recipe', status: 'pending' as const },
-    { id: 'image', label: 'Creating image', status: 'pending' as const },
+  const [loadingSteps, setLoadingSteps] = useState<LoadingStep[]>([
+    { id: 'analyze', label: 'Ingredients analyzed', status: 'pending' },
+    { id: 'recipe', label: 'Generating recipe', status: 'pending' },
+    { id: 'image', label: 'Creating image', status: 'pending' },
   ]);
 
   // Recipe result
