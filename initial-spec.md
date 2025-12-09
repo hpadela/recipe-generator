@@ -27,7 +27,18 @@ The application will:
 3. Generate a complete recipe based on the ingredients and preferences
 4. Generate a styled recipe card image (if requested)
 
-The final recipe and image will be displayed in a clean, printable format.
+The final recipe and image will be displayed in a clean, printable format. 
+
+## Clarifications
+
+- **Multi-image upload**: Users can upload multiple images at once
+- **Dietary restrictions**: Multi-select (can combine e.g., Vegetarian + Gluten-Free)
+- **Ingredient editing**: Users can edit both name and quantity of detected ingredients, plus add/remove
+- **Recipe regeneration**: Users can regenerate recipe without starting over
+- **Image storage**: Recipe card images displayed ephemerally (not persisted), recipe downloadable
+- **Authentication**: Single-session app (no auth), but architecture should allow future persistence
+- **Loading screen**: Show progress during AI processing (no skip/demo link in production)
+- **Print**: Browser print dialog
 
 ## Tech Stack
 
@@ -38,7 +49,7 @@ The final recipe and image will be displayed in a clean, printable format.
 
 ## LLM Provider
 
-**OpenAI (GPT-5)**
+**OpenAI (GPT-4o)**
 
 - API Key: Managed via environment variables
 - Image Analysis: GPT-4o
